@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: engagement_pg
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: engagement_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: engagement_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 2181:2181
+    
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  generator:
+    build: ./data_generator
+    depends_on:
+      - postgres
+    volumes:
+      - ./data_generator:/app
+
+  producer:
+    build: ./producer
+    depends_on:
+      - postgres
+      - kafka
+    volumes:
+      - ./producer:/app
+      - bigquery_data:/app/bigquery_batches
+
+  consumer:
+    build: ./consumer
+    depends_on:
+      - kafka
+      - redis
+    volumes:
+      - ./consumer:/app
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/bq_key.json
+
+  bigquery:
+    build: ./uploader
+    volumes:
+      - ./uploader:/app
+      - bigquery_data:/app/bigquery_batches
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/bq_key.json
+
+volumes:
+  pg_data:
+  redis_data:
+  bigquery_data:
